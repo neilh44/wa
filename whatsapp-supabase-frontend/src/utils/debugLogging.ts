@@ -3,8 +3,7 @@ export const initDebugLogging = (): void => {
   // Store original console methods
   const originalConsoleError = console.error;
   const originalConsoleWarn = console.warn;
-  const originalConsoleLog = console.log;
-
+  
   // Replace with versions that store logs
   console.error = (...args: any[]) => {
     // Call original function

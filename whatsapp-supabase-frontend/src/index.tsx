@@ -5,14 +5,9 @@ import { store } from './store';
 import { Provider } from 'react-redux';
 import { BrowserRouter } from 'react-router-dom';
 import { initializeSupabaseAuth } from './utils/supabaseHelpers';
-import { initDebugLogging } from './utils/debugLogging';
-import ErrorBoundary from './components/debug/ErrorBoundary';
 import './index.css';
 
-// Initialize debug logging
-initDebugLogging();
-
-// Add Supabase initialization debugging
+// Initialize Supabase auth state
 try {
   console.log('Starting Supabase auth initialization...');
   initializeSupabaseAuth()
@@ -20,18 +15,6 @@ try {
     .catch(error => console.error('Supabase auth initialization error:', error));
 } catch (error) {
   console.error('Exception during Supabase auth initialization:', error);
-}
-
-// Add Redux store debugging
-try {
-  console.log('Initial Redux state:', store.getState());
-  
-  // Subscribe to Redux state changes
-  store.subscribe(() => {
-    console.log('Redux state updated:', store.getState());
-  });
-} catch (error) {
-  console.error('Redux store error:', error);
 }
 
 try {
@@ -42,13 +25,13 @@ try {
   console.log('Attempting to render React app...');
   
   root.render(
-    <ErrorBoundary>
+    <React.StrictMode>
       <Provider store={store}>
         <BrowserRouter>
           <App />
         </BrowserRouter>
       </Provider>
-    </ErrorBoundary>
+    </React.StrictMode>
   );
   
   console.log('React rendering completed');

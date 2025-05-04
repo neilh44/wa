@@ -24,6 +24,16 @@ const Debug: React.FC = () => {
     // Get logs from localStorage via the debug utils
     if (window.debugUtils) {
       setLogs(window.debugUtils.getLogs());
+    } else {
+      // Try to get raw logs if debugUtils isn't available
+      try {
+        const errors = JSON.parse(localStorage.getItem('debug_error_logs') || '[]');
+        const warnings = JSON.parse(localStorage.getItem('debug_warn_logs') || '[]');
+        const reactError = JSON.parse(localStorage.getItem('react_error') || 'null');
+        setLogs({ errors, warnings, reactError });
+      } catch (e) {
+        console.error('Error loading logs:', e);
+      }
     }
   }, []);
 
@@ -112,6 +122,33 @@ const Debug: React.FC = () => {
         ) : (
           <Typography>No console warnings recorded.</Typography>
         )}
+      </Paper>
+
+      <Paper elevation={3} sx={{ p: 3, mb: 4 }}>
+        <Typography variant="h6" gutterBottom>
+          Environment Variables
+        </Typography>
+        <Typography><strong>NODE_ENV:</strong> {process.env.NODE_ENV}</Typography>
+        <Typography><strong>REACT_APP_SUPABASE_URL:</strong> {process.env.REACT_APP_SUPABASE_URL ? 'Set (hidden for security)' : 'Not set'}</Typography>
+        <Typography><strong>REACT_APP_SUPABASE_ANON_KEY:</strong> {process.env.REACT_APP_SUPABASE_ANON_KEY ? 'Set (hidden for security)' : 'Not set'}</Typography>
+      </Paper>
+
+      <Paper elevation={3} sx={{ p: 3, mb: 4 }}>
+        <Typography variant="h6" gutterBottom>
+          Debugging Instructions
+        </Typography>
+        <Typography paragraph>
+          If you're seeing a white screen or experiencing issues, check the errors above for clues.
+        </Typography>
+        <Typography paragraph>
+          <strong>Common issues:</strong>
+        </Typography>
+        <ul>
+          <li>Missing environment variables - Check if your .env file is properly configured</li>
+          <li>Supabase connection errors - Verify your API keys and URL</li>
+          <li>React rendering errors - Check component syntax and dependencies</li>
+          <li>Redux state issues - Look for store configuration problems</li>
+        </ul>
       </Paper>
     </Container>
   );
