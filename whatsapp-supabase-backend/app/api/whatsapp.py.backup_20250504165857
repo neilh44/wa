@@ -1,0 +1,92 @@
+from fastapi.responses import JSONResponse
+import sys
+import traceback
+from fastapi import APIRouter, HTTPException, Depends, status
+from typing import Dict, Any
+from app.models.user import User
+from app.services.whatsapp_service import WhatsAppService
+from app.utils.security import get_current_user
+from uuid import UUID
+
+router = APIRouter()
+
+@router.post("/session", status_code=status.HTTP_201_CREATED)
+async def create_session(
+    phone_number: str,
+    request: Request,
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        # Log request information
+        client_ip = request.client.host if request.client else None
+        logger.info(f"Creating WhatsApp session for user {current_user.id}, phone {phone_number}, IP {client_ip}")
+        
+        # Initialize the service
+        whatsapp_service = WhatsAppService(current_user.id)
+        
+        # Call service with detailed logging
+        try:
+            session_data = whatsapp_service.secure_session_initialization(phone_number, client_ip)
+            logger.info(f"Session initialized successfully: {session_data}")
+            return session_data
+        except AttributeError as attr_err:
+            # Check if we're missing the secure_session_initialization method
+            if "secure_session_initialization" in str(attr_err):
+                logger.error("Method secure_session_initialization not found, using initialize_session instead")
+                # Fall back to the old method
+                session_data = whatsapp_service.initialize_session()
+                logger.info(f"Session initialized with fallback method: {session_data}")
+                return session_data
+            else:
+                raise
+    except Exception as e:
+        # Detailed error logging
+        logger.error(f"Error creating WhatsApp session: {str(e)}")
+        logger.error(f"Exception type: {type(e).__name__}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        
+        # More detailed information about the system
+        logger.error(f"Python version: {sys.version}")
+        logger.error(f"Platform: {sys.platform}")
+        
+        # Return a more detailed error response
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "detail": str(e),
+                "type": type(e).__name__,
+                "traceback": traceback.format_exc().split("
+")
+            }
+        )
+
+@router.get("/session/{session_id}", status_code=status.HTTP_200_OK)
+async def check_session(
+    session_id: UUID,
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        whatsapp_service = WhatsAppService(current_user.id)
+        return whatsapp_service.check_session_status(session_id)
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+@router.post("/download", status_code=status.HTTP_200_OK)
+async def download_files(current_user: User = Depends(get_current_user)):
+    try:
+        whatsapp_service = WhatsAppService(current_user.id)
+        return {"files": whatsapp_service.download_files()}
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+@router.delete("/session/{session_id}", status_code=status.HTTP_200_OK)
+async def close_session(
+    session_id: UUID,
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        whatsapp_service = WhatsAppService(current_user.id)
+        whatsapp_service.close_session()
+        return {"message": "Session closed successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))

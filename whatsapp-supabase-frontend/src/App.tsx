@@ -14,7 +14,7 @@ import Files from './pages/Files';
 import Settings from './pages/Settings';
 import { RootState } from './store';
 import MainLayout from './components/common/MainLayout';
-
+import WhatsAppPage from './pages/WhatsAppPage';
 const theme = createTheme({
   palette: {
     mode: 'light',
@@ -44,7 +44,7 @@ const App: React.FC = () => {
           <Route path="files" element={<Files />} />
           <Route path="settings" element={<Settings />} />
         </Route>
-      </Routes>
+          <Route path="/whatsapp-debug" element={<WhatsAppPage />} />      </Routes>
     </ThemeProvider>
   );
 };
