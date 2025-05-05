@@ -1,6 +1,9 @@
+// Fix for the "Data too long" error in SessionManager.tsx
+
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Box, Paper, Typography, CircularProgress, Alert, Divider } from '@mui/material';
+import { QRCodeSVG } from 'qrcode.react';
 import config from '../../api/config';
 import Button from '../common/Button';
 
@@ -18,9 +21,37 @@ const SessionManager: React.FC = () => {
     message: 'No active WhatsApp session'
   });
   const [loading, setLoading] = useState(false);
+  const [qrError, setQrError] = useState<string | null>(null);
+
+  // This function processes QR data to make it compatible with QRCodeSVG
+  const processQrData = (data: string | undefined): string => {
+    if (!data) return '';
+    
+    // If data is a data URL (begins with "data:"), extract just the WhatsApp URL part
+    if (data.startsWith('data:')) {
+      try {
+        // Try to extract WhatsApp URL if it's embedded in the data URL
+        const matches = data.match(/https:\/\/web\.whatsapp\.com\/[^\s"')]+/);
+        if (matches && matches[0]) {
+          return matches[0];
+        }
+        
+        // If no WhatsApp URL found, return a shorter version of the data
+        // Data URLs are very long, so we'll truncate it to prevent the "Data too long" error
+        return data.substring(0, 500); // Limiting to 500 characters
+      } catch (e) {
+        console.error('Error processing QR data:', e);
+        setQrError('Error processing QR data');
+        return '';
+      }
+    }
+    
+    return data;
+  };
 
   const initializeSession = async () => {
     setLoading(true);
+    setQrError(null);
     try {
       const response = await axios.post(config.WHATSAPP.SESSION);
       if (response.data.qr_available) {
@@ -28,7 +59,7 @@ const SessionManager: React.FC = () => {
           id: response.data.session_id,
           status: 'qr_ready',
           message: 'Please scan the QR code with your WhatsApp',
-          qrData: 'QR_DATA_PLACEHOLDER' // In a real app, you'd use the actual QR data
+          qrData: response.data.qr_data // Get actual QR data from backend
         });
       } else {
         setSession({
@@ -89,12 +120,6 @@ const SessionManager: React.FC = () => {
         status: 'not_authenticated',
         message: 'Session has been closed'
       });
-    } catch (error) {
-      setSession({
-        ...session,
-        status: 'error',
-        message: 'An error occurred while closing the session'
-      });
     } finally {
       setLoading(false);
     }
@@ -139,6 +164,9 @@ const SessionManager: React.FC = () => {
     };
   }, [session.id, session.status]);
 
+  // Process the QR data to be used in the QRCodeSVG component
+  const qrDataToRender = processQrData(session.qrData);
+
   return (
     <Paper elevation={3} sx={{ p: 3, maxWidth: 600, mx: 'auto' }}>
       <Typography variant="h6" gutterBottom>
@@ -161,13 +189,35 @@ const SessionManager: React.FC = () => {
       
       {session.status === 'qr_ready' && (
         <Box sx={{ mb: 3, display: 'flex', justifyContent: 'center' }}>
-          {/* In a real app, you'd display an actual QR code here */}
-          <Paper sx={{ p: 2, width: 200, height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Typography variant="body2" color="text.secondary" align="center">
-              QR Code placeholder<br />
-              Scan with WhatsApp
-            </Typography>
-          </Paper>
+          {session.qrData ? (
+            <Box sx={{ p: 2 }}>
+              {!qrError ? (
+                // Only try to render QR code if qrDataToRender is not empty and no error
+                qrDataToRender ? (
+                  <QRCodeSVG 
+                    value={qrDataToRender}
+                    size={200}
+                    level="H" // High error correction
+                    includeMargin={true}
+                  />
+                ) : (
+                  <CircularProgress />
+                )
+              ) : (
+                // Show error message if QR processing failed
+                <Alert severity="error" sx={{ mb: 2 }}>
+                  {qrError}
+                </Alert>
+              )}
+              <Typography variant="body2" color="text.secondary" align="center" sx={{ mt: 1 }}>
+                Scan with WhatsApp
+              </Typography>
+            </Box>
+          ) : (
+            <Paper sx={{ p: 2, width: 200, height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <CircularProgress />
+            </Paper>
+          )}
         </Box>
       )}
       

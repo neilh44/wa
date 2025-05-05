@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, status, Request, Body
+from fastapi import APIRouter, HTTPException, Depends, status, Request, Body, Response
 from typing import Dict, Any, Optional
 from pydantic import BaseModel
 from app.models.user import User
@@ -112,6 +112,19 @@ async def check_session(
         logger.error(f"Error checking session {session_id}: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
+
+@router.get("/session/qr/{session_id}", status_code=status.HTTP_200_OK)
+async def get_session_qr(
+    session_id: UUID,
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        whatsapp_service = WhatsAppService(current_user.id)
+        qr_image = whatsapp_service.get_session_qr(session_id)
+        return Response(content=qr_image, media_type="image/png")
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+    
 @router.post("/download", status_code=status.HTTP_200_OK)
 async def download_files(current_user: User = Depends(get_current_user)):
     """Download files from WhatsApp."""

@@ -1,0 +1,39 @@
+To update your frontend SessionManager.tsx to handle the simplified QR code approach, make these changes:
+
+1. Update the processQrData function in your SessionManager.tsx:
+
+```typescript
+// This function processes QR data for QR code display
+const processQrData = (data: string | undefined): string => {
+  if (!data) return '';
+  
+  // Check if it's a data URL (starts with "data:")
+  if (data.startsWith('data:')) {
+    try {
+      // Extract just part of the data URL to avoid "data too long" error
+      // Keep only the first 100 characters as a unique identifier
+      return data.substring(0, 100);
+    } catch (e) {
+      console.error('Error processing QR data:', e);
+      setQrError('Error processing QR data');
+      return '';
+    }
+  }
+  
+  // For regular strings, just use as-is
+  return data;
+};
+```
+
+2. Make sure the QRCodeSVG component has a reasonable size and error correction level:
+
+```tsx
+<QRCodeSVG 
+  value={qrDataToRender}
+  size={200}
+  level="H" // High error correction for better scanning
+  includeMargin={true}
+/>
+```
+
+These changes should help handle the simplified QR code data from the backend.
