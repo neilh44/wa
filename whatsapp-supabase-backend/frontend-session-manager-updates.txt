@@ -1,0 +1,116 @@
+To update your frontend SessionManager component to better handle authentication:
+
+1. Increase polling frequency for authentication status:
+```typescript
+// In SessionManager.tsx, increase the polling frequency while waiting for QR scan
+useEffect(() => {
+  let interval: NodeJS.Timeout;
+  
+  if (session.id && session.status === 'qr_ready') {
+    // Check more frequently (every 2 seconds) to detect authentication faster
+    interval = setInterval(checkSessionStatus, 2000);
+  }
+  
+  return () => {
+    if (interval) clearInterval(interval);
+  };
+}, [session.id, session.status]);
+```
+
+2. Add more detailed status handling:
+```typescript
+const checkSessionStatus = async () => {
+  if (!session.id) return;
+  
+  setLoading(true);
+  try {
+    const response = await axios.get(`${config.WHATSAPP.SESSION}/${session.id}`);
+    console.log("Session status response:", response.data); // Add logging
+    
+    if (response.data.status === 'authenticated') {
+      setSession({
+        ...session,
+        status: 'authenticated',
+        message: 'WhatsApp session is active! You can now download files.'
+      });
+      
+      // Play a sound or show notification to alert user
+      // You could add a small notification sound here
+      try {
+        const audio = new Audio('/notification.mp3');
+        audio.play();
+      } catch (e) {
+        console.log('Audio notification not supported');
+      }
+    } else {
+      setSession({
+        ...session,
+        status: 'not_authenticated',
+        message: 'Session is not authenticated, please scan the QR code with WhatsApp'
+      });
+    }
+  } catch (error) {
+    console.error("Error checking session status:", error);
+    setSession({
+      ...session,
+      status: 'error',
+      message: 'An error occurred while checking the session'
+    });
+  } finally {
+    setLoading(false);
+  }
+};
+```
+
+3. Add a visual indicator when authentication is successful:
+```jsx
+{session.status === 'authenticated' && (
+  <Box sx={{ mb: 3, display: 'flex', justifyContent: 'center' }}>
+    <Alert severity="success" sx={{ width: '100%' }}>
+      <AlertTitle>Connected</AlertTitle>
+      WhatsApp session is active and ready to use!
+    </Alert>
+  </Box>
+)}
+```
+
+4. Consider adding a more obvious UI change on authentication:
+```jsx
+// At the top of your component:
+import { Alert, AlertTitle, CircularProgress, Box, Divider, Paper, Typography } from '@mui/material';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+
+// Then in your render function, replace the QR code display with a success message when authenticated:
+{session.status === 'qr_ready' && (
+  <Box sx={{ mb: 3, display: 'flex', justifyContent: 'center' }}>
+    {session.qrData ? (
+      <Box sx={{ p: 2 }}>
+        <img 
+          src={session.qrData} 
+          alt="WhatsApp QR Code" 
+          style={{ width: 200, height: 200 }}
+        />
+        <Typography variant="body2" color="text.secondary" align="center" sx={{ mt: 1 }}>
+          Scan with WhatsApp
+        </Typography>
+      </Box>
+    ) : (
+      <Paper sx={{ p: 2, width: 200, height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <CircularProgress />
+      </Paper>
+    )}
+  </Box>
+)}
+
+{session.status === 'authenticated' && (
+  <Box sx={{ mb: 3, display: 'flex', justifyContent: 'center', flexDirection: 'column', alignItems: 'center' }}>
+    <CheckCircleIcon color="success" style={{ fontSize: 80, marginBottom: 16 }} />
+    <Typography variant="h6" color="success.main" gutterBottom>
+      WhatsApp Connected
+    </Typography>
+    <Typography variant="body1">
+      Your WhatsApp session is active and ready to use
+    </Typography>
+  </Box>
+)}
+```

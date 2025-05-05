@@ -1,15 +1,15 @@
 #!/bin/bash
 
-# WhatsApp Valid QR Code Fix
-# This script fixes the invalid QR code issue
+# WhatsApp Authentication Detection Fix
+# This script modifies the WhatsAppService to better detect authentication changes
 
-echo "========== WhatsApp Valid QR Code Fix =========="
-echo "Fixing invalid QR code issue..."
+echo "========== WhatsApp Authentication Detection Fix =========="
+echo "Enhancing authentication detection in WhatsAppService..."
 
 # Navigate to the backend directory
 cd whatsapp-supabase-backend || { echo "Backend directory not found!"; exit 1; }
 
-# 1. Update the WhatsAppService to extract the actual QR code data properly
+# 1. Update the WhatsAppService with improved authentication detection
 cat > app/services/whatsapp_service.py << 'EOL'
 import os
 import time
@@ -24,6 +24,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException, WebDriverException, NoSuchElementException
 from webdriver_manager.chrome import ChromeDriverManager
 from app.utils.logger import get_logger
 from app.models.session import Session, SessionStatus
@@ -41,9 +42,107 @@ class WhatsAppService:
         self.driver = None
         self.session_id = None
     
+    def _get_session_data(self, session_id: str) -> Dict[str, Any]:
+        """Get session data from database."""
+        try:
+            session_query = supabase.table("sessions").select("*").eq("id", session_id).execute()
+            
+            if not session_query.data:
+                logger.warning(f"Session not found: {session_id}")
+                return {}
+            
+            return session_query.data[0].get("session_data", {}) or {}
+        except Exception as e:
+            logger.error(f"Error retrieving session data: {e}")
+            return {}
+    
+    def _update_session_data(self, session_id: str, data: Dict[str, Any]) -> bool:
+        """Update session data in database."""
+        try:
+            # Get current session data
+            current_data = self._get_session_data(session_id)
+            
+            # Merge with new data
+            merged_data = {**current_data, **data}
+            
+            # Update in database
+            supabase.table("sessions").update({
+                "session_data": merged_data,
+                "updated_at": datetime.utcnow().isoformat()
+            }).eq("id", session_id).execute()
+            
+            return True
+        except Exception as e:
+            logger.error(f"Error updating session data: {e}")
+            return False
+    
+    def _is_authenticated(self) -> bool:
+        """Check if the WhatsApp session is authenticated by looking for multiple indicators."""
+        try:
+            # Method 1: Check for chat list or main screen elements
+            try:
+                chat_icon = self.driver.find_element(By.CSS_SELECTOR, "[data-icon='chat']")
+                if chat_icon:
+                    logger.info("Authentication detected via chat icon")
+                    return True
+            except NoSuchElementException:
+                pass
+            
+            # Method 2: Check for side panel (contact list)
+            try:
+                side_panel = self.driver.find_element(By.ID, "pane-side")
+                if side_panel:
+                    logger.info("Authentication detected via side panel")
+                    return True
+            except NoSuchElementException:
+                pass
+                
+            # Method 3: Check for absence of QR code
+            try:
+                qr_code = self.driver.find_element(By.CSS_SELECTOR, "canvas")
+                # If QR code is found, not authenticated
+                return False
+            except NoSuchElementException:
+                # If QR code is not found, check for other authentication indicators
+                try:
+                    # Check for profile or menu buttons that appear after login
+                    profile_button = self.driver.find_element(By.CSS_SELECTOR, "[data-icon='menu']")
+                    if profile_button:
+                        logger.info("Authentication detected via menu icon")
+                        return True
+                except NoSuchElementException:
+                    pass
+            
+            # Method 4: Check page title
+            if "WhatsApp" in self.driver.title and "Login" not in self.driver.title:
+                # Take a screenshot for debugging
+                try:
+                    screenshot_path = os.path.join(self.data_dir, "debug_screenshot.png")
+                    self.driver.save_screenshot(screenshot_path)
+                    logger.info(f"Saved debug screenshot to {screenshot_path}")
+                except Exception as e:
+                    logger.error(f"Error saving screenshot: {e}")
+                
+                # Check page source for indicators
+                if "WhatsApp is ready" in self.driver.page_source:
+                    logger.info("Authentication detected via page content")
+                    return True
+                
+                # Last resort: check if URL changed from login page
+                if "/accept" in self.driver.current_url:
+                    logger.info("Authentication detected via URL change")
+                    return True
+            
+            return False
+        except Exception as e:
+            logger.error(f"Error checking authentication status: {e}")
+            return False
+    
     def initialize_session(self) -> Dict[str, Any]:
         """Initialize a WhatsApp session and return QR code data."""
         try:
+            logger.info(f"Initializing WhatsApp session for user: {self.user_id}")
+            
             # Setup Chrome options
             chrome_options = Options()
             chrome_options.add_argument("--headless")
@@ -62,6 +161,9 @@ class WhatsAppService:
             # Open WhatsApp Web
             self.driver.get("https://web.whatsapp.com/")
             
+            # Add a small delay to ensure page loads
+            time.sleep(2)
+            
             # Create a new session record
             session_data = {
                 "user_id": str(self.user_id),
@@ -75,14 +177,33 @@ class WhatsAppService:
             result = supabase.table("sessions").insert(session_data).execute()
             self.session_id = result.data[0]["id"] if result.data else None
             
-            # Wait for QR code
-            qr_code_element = WebDriverWait(self.driver, 30).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "canvas"))
-            )
+            if not self.session_id:
+                logger.error("Failed to create session record")
+                return {"qr_available": False, "error": "Failed to create session record"}
             
-            # Extract the QR code image data directly as base64
-            # This is the correct way to get a valid WhatsApp QR code
+            # Check if already authenticated
+            if self._is_authenticated():
+                logger.info("Already authenticated in initialize_session")
+                
+                # Update session status
+                supabase.table("sessions").update({
+                    "status": SessionStatus.ACTIVE,
+                    "updated_at": datetime.utcnow().isoformat()
+                }).eq("id", str(self.session_id)).execute()
+                
+                return {
+                    "qr_available": False,
+                    "session_id": self.session_id,
+                    "already_authenticated": True
+                }
+            
+            # Wait for QR code
             try:
+                qr_code_element = WebDriverWait(self.driver, 30).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "canvas"))
+                )
+                
+                # Extract the QR code image data directly as base64
                 qr_code_data = self.driver.execute_script("""
                     var canvas = arguments[0];
                     return canvas.toDataURL('image/png');
@@ -91,15 +212,35 @@ class WhatsAppService:
                 logger.info(f"QR code data length: {len(qr_code_data) if qr_code_data else 0}")
                 
                 # Store the QR data in the session
-                supabase.table("sessions").update({
-                    "session_data": {"qr_code_data": qr_code_data},
-                    "updated_at": datetime.utcnow().isoformat()
-                }).eq("id", str(self.session_id)).execute()
+                self._update_session_data(self.session_id, {"qr_code_data": qr_code_data})
                 
                 return {
                     "qr_available": True,
                     "session_id": self.session_id,
                     "qr_data": qr_code_data
+                }
+            except TimeoutException:
+                logger.warning("QR code not found within timeout period")
+                
+                # Check if already logged in again (in case authentication happened during timeout)
+                if self._is_authenticated():
+                    logger.info("Authentication detected after timeout")
+                    
+                    # Update session status
+                    supabase.table("sessions").update({
+                        "status": SessionStatus.ACTIVE,
+                        "updated_at": datetime.utcnow().isoformat()
+                    }).eq("id", str(self.session_id)).execute()
+                    
+                    return {
+                        "qr_available": False,
+                        "session_id": self.session_id,
+                        "already_authenticated": True
+                    }
+                
+                return {
+                    "qr_available": False,
+                    "error": "QR code not found within timeout period"
                 }
             except Exception as e:
                 logger.error(f"Error extracting QR code data: {e}")
@@ -114,49 +255,103 @@ class WhatsAppService:
     
     def check_session_status(self, session_id: UUID) -> Dict[str, Any]:
         """Check if the session is authenticated."""
-        # Query session from database
-        session_query = supabase.table("sessions").select("*").eq("id", str(session_id)).execute()
-        
-        if not session_query.data:
-            return {"status": "not_found"}
-        
-        session_data = session_query.data[0]
-        
-        # If driver is not initialized, initialize it
-        if not self.driver:
-            # Setup Chrome options
-            chrome_options = Options()
-            chrome_options.add_argument("--headless")
-            chrome_options.add_argument("--no-sandbox")
-            chrome_options.add_argument("--disable-dev-shm-usage")
-            chrome_options.add_argument(f"--user-data-dir={self.data_dir}")
-            
-            # Use a simpler approach that works with older webdriver-manager versions
-            driver_path = ChromeDriverManager().install()
-            service = Service(executable_path=driver_path)
-            
-            # Initialize the Chrome driver
-            self.driver = webdriver.Chrome(service=service, options=chrome_options)
-            
-            # Open WhatsApp Web
-            self.driver.get("https://web.whatsapp.com/")
-        
         try:
-            # Check if logged in by looking for a common element that appears after login
-            WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "[data-icon='chat']"))
-            )
+            # Query session from database
+            session_query = supabase.table("sessions").select("*").eq("id", str(session_id)).execute()
             
-            # Update session status in database
-            supabase.table("sessions").update({
-                "status": SessionStatus.ACTIVE,
-                "updated_at": datetime.utcnow().isoformat()
-            }).eq("id", str(session_id)).execute()
+            if not session_query.data:
+                return {"status": "not_found"}
             
-            return {"status": "authenticated"}
-        except Exception as e:
-            logger.error(f"Session not authenticated: {e}")
+            session_data = session_query.data[0]
+            
+            # If driver is not initialized, initialize it
+            if not self.driver:
+                # Setup Chrome options
+                chrome_options = Options()
+                chrome_options.add_argument("--headless")
+                chrome_options.add_argument("--no-sandbox")
+                chrome_options.add_argument("--disable-dev-shm-usage")
+                chrome_options.add_argument(f"--user-data-dir={self.data_dir}")
+                
+                # Use a simpler approach that works with older webdriver-manager versions
+                driver_path = ChromeDriverManager().install()
+                service = Service(executable_path=driver_path)
+                
+                # Initialize the Chrome driver
+                self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                
+                # Open WhatsApp Web and wait for it to load
+                self.driver.get("https://web.whatsapp.com/")
+                time.sleep(3)  # Give the page a moment to load
+            
+            # Refresh the page to ensure we have the latest state
+            try:
+                self.driver.refresh()
+                time.sleep(3)  # Wait for refresh to complete
+            except Exception as e:
+                logger.warning(f"Error refreshing page: {e}")
+            
+            # Check authentication status
+            if self._is_authenticated():
+                logger.info(f"Session {session_id} is authenticated")
+                
+                # Update session status in database
+                supabase.table("sessions").update({
+                    "status": SessionStatus.ACTIVE,
+                    "updated_at": datetime.utcnow().isoformat()
+                }).eq("id", str(session_id)).execute()
+                
+                # Try to get QR data if it exists
+                try:
+                    session_data = self._get_session_data(str(session_id))
+                    qr_data = session_data.get("qr_code_data")
+                    
+                    return {
+                        "status": "authenticated",
+                        "qr_data": qr_data if qr_data else None
+                    }
+                except Exception as e:
+                    logger.warning(f"Error retrieving QR data: {e}")
+                    return {"status": "authenticated"}
+            
+            # Not authenticated, check for QR code
+            try:
+                qr_code_element = WebDriverWait(self.driver, 5).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "canvas"))
+                )
+                
+                # Extract QR code if possible
+                try:
+                    qr_code_data = self.driver.execute_script("""
+                        var canvas = arguments[0];
+                        return canvas.toDataURL('image/png');
+                    """, qr_code_element)
+                    
+                    # Update session data
+                    self._update_session_data(str(session_id), {"qr_code_data": qr_code_data})
+                    
+                    # Take a screenshot for debugging
+                    try:
+                        screenshot_path = os.path.join(self.data_dir, "qr_screenshot.png")
+                        self.driver.save_screenshot(screenshot_path)
+                        logger.info(f"Saved QR screenshot to {screenshot_path}")
+                    except Exception as e:
+                        logger.error(f"Error saving QR screenshot: {e}")
+                    
+                    return {
+                        "status": "not_authenticated",
+                        "qr_available": True,
+                        "qr_data": qr_code_data
+                    }
+                except Exception as e:
+                    logger.error(f"Error extracting QR code data: {e}")
+            except Exception as e:
+                logger.warning(f"No QR code found: {e}")
+            
             return {"status": "not_authenticated"}
+        except Exception as e:
+            logger.error(f"Error checking session status: {e}")
+            return {"status": "error", "message": str(e)}
     
     def download_files(self) -> List[Dict[str, Any]]:
         """Download files from WhatsApp and return file info."""
@@ -196,260 +391,212 @@ class WhatsAppService:
             }).eq("id", str(self.session_id)).execute()
 EOL
 
-echo "✅ Updated WhatsAppService to extract QR code data properly"
+echo "✅ Updated WhatsAppService with improved authentication detection"
 
-# 2. Create a modified version of the frontend SessionManager to display the image QR code
-cat > frontend-qr-fix.jsx << 'EOL'
-// SessionManager.tsx with updated QR code handling
-import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-import { Box, Paper, Typography, CircularProgress, Alert, Divider } from '@mui/material';
-import config from '../../api/config';
-import Button from '../common/Button';
+# 2. Create a test script to manually check authentication status
+cat > test_auth_status.py << 'EOL'
+#!/usr/bin/env python3
+import os
+import sys
+import json
+import time
+from datetime import datetime
+from uuid import UUID
 
-interface SessionState {
-  id: string | null;
-  status: 'initializing' | 'qr_ready' | 'authenticated' | 'not_authenticated' | 'error';
-  message: string;
-  qrData?: string;
-}
+# Add the app directory to the Python path
+sys.path.insert(0, os.path.abspath('.'))
 
-const SessionManager: React.FC = () => {
-  const [session, setSession] = useState<SessionState>({
-    id: null,
-    status: 'not_authenticated',
-    message: 'No active WhatsApp session'
-  });
-  const [loading, setLoading] = useState(false);
-  const [qrError, setQrError] = useState<string | null>(null);
+# Import the WhatsApp service
+from app.services.whatsapp_service import WhatsAppService
+from app.utils.logger import get_logger
 
-  const initializeSession = async () => {
-    setLoading(true);
-    setQrError(null);
-    try {
-      const response = await axios.post(config.WHATSAPP.SESSION);
-      if (response.data.qr_available) {
-        setSession({
-          id: response.data.session_id,
-          status: 'qr_ready',
-          message: 'Please scan the QR code with your WhatsApp',
-          qrData: response.data.qr_data // Get actual QR code data from backend
-        });
-      } else {
-        setSession({
-          id: null,
-          status: 'error',
-          message: response.data.error || 'Failed to initialize session'
-        });
-      }
-    } catch (error) {
-      setSession({
-        id: null,
-        status: 'error',
-        message: 'An error occurred while initializing the session'
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
+logger = get_logger()
 
-  const checkSessionStatus = async () => {
-    if (!session.id) return;
+def test_authentication():
+    """Test WhatsApp authentication detection"""
+    logger.info("Starting WhatsApp authentication testing...")
     
-    setLoading(true);
-    try {
-      const response = await axios.get(`${config.WHATSAPP.SESSION}/${session.id}`);
-      if (response.data.status === 'authenticated') {
-        setSession({
-          ...session,
-          status: 'authenticated',
-          message: 'WhatsApp session is active'
-        });
-      } else {
-        setSession({
-          ...session,
-          status: 'not_authenticated',
-          message: 'Session is not authenticated, please rescan the QR code'
-        });
-      }
-    } catch (error) {
-      setSession({
-        ...session,
-        status: 'error',
-        message: 'An error occurred while checking the session'
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const closeSession = async () => {
-    if (!session.id) return;
+    # Create a test user ID - replace with your actual user ID from logs
+    test_user_id = UUID('e4cb8a86-6474-454d-a740-3ae98266a509')  # Update with your user ID
     
-    setLoading(true);
-    try {
-      await axios.delete(`${config.WHATSAPP.SESSION}/${session.id}`);
-      setSession({
-        id: null,
-        status: 'not_authenticated',
-        message: 'Session has been closed'
-      });
-    } catch (error) {
-      setSession({
-        ...session,
-        status: 'error',
-        message: 'An error occurred while closing the session'
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const downloadFiles = async () => {
-    setLoading(true);
-    try {
-      const response = await axios.post(config.WHATSAPP.DOWNLOAD);
-      if (response.data.files && response.data.files.length > 0) {
-        setSession({
-          ...session,
-          message: `Downloaded ${response.data.files.length} files`
-        });
-      } else {
-        setSession({
-          ...session,
-          message: 'No new files found'
-        });
-      }
-    } catch (error) {
-      setSession({
-        ...session,
-        status: 'error',
-        message: 'An error occurred while downloading files'
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    // Check session status periodically if there's an active session
-    let interval: NodeJS.Timeout;
+    # Initialize the WhatsApp service
+    whatsapp_service = WhatsAppService(test_user_id)
     
-    if (session.id && session.status === 'qr_ready') {
-      interval = setInterval(checkSessionStatus, 5000);
-    }
+    # Initialize a session
+    logger.info("Initializing WhatsApp session...")
+    result = whatsapp_service.initialize_session()
     
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [session.id, session.status]);
-
-  // No need for QRCodeSVG - we'll display the data URL image directly
-  return (
-    <Paper elevation={3} sx={{ p: 3, maxWidth: 600, mx: 'auto' }}>
-      <Typography variant="h6" gutterBottom>
-        WhatsApp Session
-      </Typography>
-      
-      <Divider sx={{ mb: 2 }} />
-      
-      <Box sx={{ mb: 3 }}>
-        <Alert 
-          severity={
-            session.status === 'authenticated' ? 'success' : 
-            session.status === 'error' ? 'error' : 
-            session.status === 'qr_ready' ? 'info' : 'warning'
-          }
-        >
-          {session.message}
-        </Alert>
-      </Box>
-      
-      {session.status === 'qr_ready' && (
-        <Box sx={{ mb: 3, display: 'flex', justifyContent: 'center' }}>
-          {session.qrData ? (
-            <Box sx={{ p: 2 }}>
-              {/* Display the QR code as an image instead of using QRCodeSVG */}
-              <img 
-                src={session.qrData} 
-                alt="WhatsApp QR Code" 
-                style={{ width: 200, height: 200 }}
-              />
-              <Typography variant="body2" color="text.secondary" align="center" sx={{ mt: 1 }}>
-                Scan with WhatsApp
-              </Typography>
-            </Box>
-          ) : (
-            <Paper sx={{ p: 2, width: 200, height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <CircularProgress />
-            </Paper>
-          )}
-        </Box>
-      )}
-      
-      <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-        {!session.id && (
-          <Button
-            variant="contained"
-            onClick={initializeSession}
-            loading={loading}
-          >
-            Start WhatsApp Session
-          </Button>
-        )}
+    # Print the result
+    logger.info(f"Session initialization result: {json.dumps(result, default=str)}")
+    
+    if 'session_id' in result:
+        session_id = result['session_id']
         
-        {session.id && session.status !== 'authenticated' && (
-          <Button
-            variant="outlined"
-            onClick={checkSessionStatus}
-            loading={loading}
-          >
-            Check Status
-          </Button>
-        )}
+        # Loop to check authentication status
+        attempts = 0
+        while attempts < 10:
+            logger.info(f"Checking authentication status (attempt {attempts+1})...")
+            status_result = whatsapp_service.check_session_status(session_id)
+            logger.info(f"Authentication status: {json.dumps(status_result, default=str)}")
+            
+            if status_result.get('status') == 'authenticated':
+                logger.info("Authentication successful!")
+                break
+            
+            logger.info("Waiting for authentication...")
+            time.sleep(5)
+            attempts += 1
         
-        {session.id && (
-          <Button
-            variant="outlined"
-            color="error"
-            onClick={closeSession}
-            loading={loading}
-          >
-            Close Session
-          </Button>
-        )}
-        
-        {session.status === 'authenticated' && (
-          <Button
-            variant="contained"
-            color="secondary"
-            onClick={downloadFiles}
-            loading={loading}
-          >
-            Download Files
-          </Button>
-        )}
-      </Box>
-    </Paper>
-  );
-};
+        # Close the session
+        whatsapp_service.close_session()
+    
+    return result
 
-export default SessionManager;
+if __name__ == "__main__":
+    test_authentication()
 EOL
 
-echo "✅ Created updated SessionManager component for direct QR code display"
+chmod +x test_auth_status.py
+echo "✅ Created authentication test script"
+
+# 3. Update the frontend SessionManager to handle authentication
+cat > frontend-session-manager-updates.txt << 'EOL'
+To update your frontend SessionManager component to better handle authentication:
+
+1. Increase polling frequency for authentication status:
+```typescript
+// In SessionManager.tsx, increase the polling frequency while waiting for QR scan
+useEffect(() => {
+  let interval: NodeJS.Timeout;
+  
+  if (session.id && session.status === 'qr_ready') {
+    // Check more frequently (every 2 seconds) to detect authentication faster
+    interval = setInterval(checkSessionStatus, 2000);
+  }
+  
+  return () => {
+    if (interval) clearInterval(interval);
+  };
+}, [session.id, session.status]);
+```
+
+2. Add more detailed status handling:
+```typescript
+const checkSessionStatus = async () => {
+  if (!session.id) return;
+  
+  setLoading(true);
+  try {
+    const response = await axios.get(`${config.WHATSAPP.SESSION}/${session.id}`);
+    console.log("Session status response:", response.data); // Add logging
+    
+    if (response.data.status === 'authenticated') {
+      setSession({
+        ...session,
+        status: 'authenticated',
+        message: 'WhatsApp session is active! You can now download files.'
+      });
+      
+      // Play a sound or show notification to alert user
+      // You could add a small notification sound here
+      try {
+        const audio = new Audio('/notification.mp3');
+        audio.play();
+      } catch (e) {
+        console.log('Audio notification not supported');
+      }
+    } else {
+      setSession({
+        ...session,
+        status: 'not_authenticated',
+        message: 'Session is not authenticated, please scan the QR code with WhatsApp'
+      });
+    }
+  } catch (error) {
+    console.error("Error checking session status:", error);
+    setSession({
+      ...session,
+      status: 'error',
+      message: 'An error occurred while checking the session'
+    });
+  } finally {
+    setLoading(false);
+  }
+};
+```
+
+3. Add a visual indicator when authentication is successful:
+```jsx
+{session.status === 'authenticated' && (
+  <Box sx={{ mb: 3, display: 'flex', justifyContent: 'center' }}>
+    <Alert severity="success" sx={{ width: '100%' }}>
+      <AlertTitle>Connected</AlertTitle>
+      WhatsApp session is active and ready to use!
+    </Alert>
+  </Box>
+)}
+```
+
+4. Consider adding a more obvious UI change on authentication:
+```jsx
+// At the top of your component:
+import { Alert, AlertTitle, CircularProgress, Box, Divider, Paper, Typography } from '@mui/material';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+
+// Then in your render function, replace the QR code display with a success message when authenticated:
+{session.status === 'qr_ready' && (
+  <Box sx={{ mb: 3, display: 'flex', justifyContent: 'center' }}>
+    {session.qrData ? (
+      <Box sx={{ p: 2 }}>
+        <img 
+          src={session.qrData} 
+          alt="WhatsApp QR Code" 
+          style={{ width: 200, height: 200 }}
+        />
+        <Typography variant="body2" color="text.secondary" align="center" sx={{ mt: 1 }}>
+          Scan with WhatsApp
+        </Typography>
+      </Box>
+    ) : (
+      <Paper sx={{ p: 2, width: 200, height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <CircularProgress />
+      </Paper>
+    )}
+  </Box>
+)}
+
+{session.status === 'authenticated' && (
+  <Box sx={{ mb: 3, display: 'flex', justifyContent: 'center', flexDirection: 'column', alignItems: 'center' }}>
+    <CheckCircleIcon color="success" style={{ fontSize: 80, marginBottom: 16 }} />
+    <Typography variant="h6" color="success.main" gutterBottom>
+      WhatsApp Connected
+    </Typography>
+    <Typography variant="body1">
+      Your WhatsApp session is active and ready to use
+    </Typography>
+  </Box>
+)}
+```
+EOL
+
+echo "✅ Created frontend update instructions"
 
 echo -e "\n===== INSTRUCTIONS ====="
-echo "1. Update your WhatsAppService in the backend:"
+echo "1. Apply the backend fixes:"
 echo "   - Replace app/services/whatsapp_service.py with the updated version"
 echo ""
-echo "2. Update your SessionManager component in the frontend:"
-echo "   - Copy the content from frontend-qr-fix.jsx to src/components/whatsapp/SessionManager.tsx"
-echo "   - Note: This version displays the QR code directly as an image instead of using QRCodeSVG"
+echo "2. Test authentication detection with the provided script:"
+echo "   python test_auth_status.py"
 echo ""
-echo "3. Restart your backend server:"
+echo "3. Update your frontend SessionManager component using the suggestions"
+echo "   in frontend-session-manager-updates.txt"
+echo ""
+echo "4. Restart your backend server:"
 echo "   python -m app.main"
 echo ""
-echo "4. Restart your frontend development server"
+echo "5. Restart your frontend development server if needed"
 echo ""
-echo "WhatsApp valid QR code fix is now complete!"
+echo "6. Test the complete flow again - QR code scan should now properly trigger"
+echo "   authentication detection and UI updates"
+echo ""
+echo "WhatsApp authentication detection fix is now complete!"

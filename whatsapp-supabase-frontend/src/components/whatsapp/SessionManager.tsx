@@ -51,17 +51,28 @@ const SessionManager: React.FC = () => {
 
   const initializeSession = async () => {
     setLoading(true);
-    setQrError(null);
     try {
       const response = await axios.post(config.WHATSAPP.SESSION);
-      if (response.data.qr_available) {
+      
+      // Check if already authenticated
+      if (response.data.already_authenticated) {
+        setSession({
+          id: response.data.session_id,
+          status: 'authenticated',
+          message: 'WhatsApp session is already active'
+        });
+      } 
+      // Check if QR code is available
+      else if (response.data.qr_available) {
         setSession({
           id: response.data.session_id,
           status: 'qr_ready',
           message: 'Please scan the QR code with your WhatsApp',
-          qrData: response.data.qr_data // Get actual QR data from backend
+          qrData: response.data.qr_data
         });
-      } else {
+      } 
+      // Handle error case
+      else {
         setSession({
           id: null,
           status: 'error',
