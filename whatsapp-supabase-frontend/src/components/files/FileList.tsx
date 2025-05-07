@@ -13,7 +13,8 @@ import {
   InputAdornment,
   IconButton,
   Box,
-  Chip
+  Chip,
+  Alert
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -24,21 +25,56 @@ import Button from '../common/Button';
 
 const FileList: React.FC = () => {
   const dispatch = useDispatch<AppDispatch>();
-  const { files, loading } = useSelector((state: RootState) => state.files);
+  const { files, loading, error } = useSelector((state: RootState) => state.files);
   const [phoneFilter, setPhoneFilter] = useState('');
   const [searchText, setSearchText] = useState('');
+  const [localError, setLocalError] = useState<string | null>(null);
 
   useEffect(() => {
-    dispatch(getFiles(undefined));
+    // Check for token before making the API call
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setLocalError('Authentication token is missing. Please log in again.');
+      return;
+    }
+
+    console.log('Fetching files on component mount...');
+    dispatch(getFiles(undefined))
+      .unwrap()
+      .then(() => {
+        setLocalError(null);
+      })
+      .catch((err) => {
+        console.error('Error fetching files:', err);
+        setLocalError(typeof err === 'string' ? err : 'Failed to fetch files. Please try again.');
+      });
   }, [dispatch]);
 
   const handleRefresh = () => {
-    dispatch(getFiles(phoneFilter || undefined));
+    console.log('Refreshing files...');
+    dispatch(getFiles(phoneFilter || undefined))
+      .unwrap()
+      .then(() => {
+        setLocalError(null);
+      })
+      .catch((err) => {
+        console.error('Error refreshing files:', err);
+        setLocalError(typeof err === 'string' ? err : 'Failed to refresh files. Please try again.');
+      });
   };
 
   const handlePhoneSearch = () => {
     setPhoneFilter(searchText);
-    dispatch(getFiles(searchText || undefined));
+    console.log('Searching files by phone number:', searchText);
+    dispatch(getFiles(searchText || undefined))
+      .unwrap()
+      .then(() => {
+        setLocalError(null);
+      })
+      .catch((err) => {
+        console.error('Error searching files:', err);
+        setLocalError(typeof err === 'string' ? err : 'Failed to search files. Please try again.');
+      });
   };
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -51,6 +87,7 @@ const FileList: React.FC = () => {
     }
   };
 
+  // Always filter locally to ensure UI is responsive
   const filteredFiles = files.filter(file => 
     !phoneFilter || file.phone_number.includes(phoneFilter)
   );
@@ -94,6 +131,14 @@ const FileList: React.FC = () => {
         </Box>
       </Box>
 
+      {(error || localError) && (
+        <Box sx={{ mb: 3 }}>
+          <Alert severity="error">
+            {error || localError}
+          </Alert>
+        </Box>
+      )}
+
       {phoneFilter && (
         <Box sx={{ mb: 2 }}>
           <Chip 
@@ -120,7 +165,14 @@ const FileList: React.FC = () => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {filteredFiles.length > 0 ? (
+            {loading && (
+              <TableRow>
+                <TableCell colSpan={6} align="center">
+                  Loading files...
+                </TableCell>
+              </TableRow>
+            )}
+            {!loading && filteredFiles.length > 0 ? (
               filteredFiles.map((file) => (
                 <TableRow key={file.id}>
                   <TableCell>{file.filename}</TableCell>
@@ -140,7 +192,7 @@ const FileList: React.FC = () => {
             ) : (
               <TableRow>
                 <TableCell colSpan={6} align="center">
-                  No files found
+                  {loading ? 'Loading...' : 'No files found'}
                 </TableCell>
               </TableRow>
             )}

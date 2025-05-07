@@ -21,6 +21,7 @@ class Settings(BaseModel):
     # Supabase settings
     supabase_url: str = os.getenv("SUPABASE_URL", "")
     supabase_key: str = os.getenv("SUPABASE_KEY", "")
+    supabase_service_key: str = os.getenv("SUPABASE_SERVICE_KEY", "")  # Add this line
     
     # WhatsApp settings
     whatsapp_data_dir: str = os.getenv("WHATSAPP_DATA_DIR", "./whatsapp_data")

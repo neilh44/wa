@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Auth Diagnostic Tool</title>
+  <style>
+    body {
+      font-family: monospace;
+      padding: 20px;
+      max-width: 800px;
+      margin: 0 auto;
+      background-color: #f5f5f5;
+    }
+    #output {
+      background-color: #000;
+      color: #fff;
+      padding: 15px;
+      border-radius: 5px;
+      height: 500px;
+      overflow-y: auto;
+      margin-bottom: 20px;
+    }
+    button {
+      background-color: #4CAF50;
+      border: none;
+      color: white;
+      padding: 10px 20px;
+      text-align: center;
+      text-decoration: none;
+      display: inline-block;
+      font-size: 16px;
+      margin: 4px 2px;
+      cursor: pointer;
+      border-radius: 5px;
+    }
+    .input-group {
+      margin-bottom: 15px;
+    }
+    input {
+      padding: 8px;
+      width: 300px;
+    }
+    h1 {
+      color: #333;
+    }
+  </style>
+</head>
+<body>
+  <h1>Authentication Diagnostic Tool</h1>
+  <div class="input-group">
+    <label for="username">Test Username:</label>
+    <input type="text" id="username" placeholder="Enter username">
+  </div>
+  <div class="input-group">
+    <label for="password">Test Password:</label>
+    <input type="password" id="password" placeholder="Enter password">
+  </div>
+  <button id="runTests">Run Diagnostics</button>
+  <button id="clearStorage">Clear Storage</button>
+  <div id="output"></div>
+
+  <script type="module">
+    import runAuthDiagnostics from './auth-debug.js';
+    
+    // Override console.log to output to our div
+    const outputDiv = document.getElementById('output');
+    const originalConsoleLog = console.log;
+    
+    console.log = function(...args) {
+      originalConsoleLog.apply(console, args);
+      const text = args.join(' ').replace(/\x1b\[\d+m/g, ''); // Remove color codes
+      outputDiv.innerHTML += text + '<br>';
+      outputDiv.scrollTop = outputDiv.scrollHeight;
+    };
+    
+    // Override prompt to use our inputs
+    window.prompt = function(message) {
+      if (message.includes('username')) {
+        return document.getElementById('username').value;
+      } else if (message.includes('password')) {
+        return document.getElementById('password').value;
+      }
+      return '';
+    };
+    
+    document.getElementById('runTests').addEventListener('click', runAuthDiagnostics);
+    
+    document.getElementById('clearStorage').addEventListener('click', function() {
+      localStorage.removeItem('api_token');
+      localStorage.removeItem('supabase_token');
+      console.log('LocalStorage cleared');
+    });
+  </script>
+</body>
+</html>

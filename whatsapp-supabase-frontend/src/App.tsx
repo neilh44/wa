@@ -5,16 +5,13 @@ import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 
 import Login from './pages/Login';
-import Signup from './pages/Signup';
-import VerifyEmail from './pages/VerifyEmail';
-import ResetPassword from './pages/ResetPassword';
-import UpdatePassword from './pages/UpdatePassword';
 import Dashboard from './pages/Dashboard';
 import Files from './pages/Files';
 import Settings from './pages/Settings';
 import { RootState } from './store';
 import MainLayout from './components/common/MainLayout';
-import WhatsAppPage from './pages/WhatsAppPage';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+
 const theme = createTheme({
   palette: {
     mode: 'light',
@@ -27,24 +24,43 @@ const theme = createTheme({
   },
 });
 
-const App: React.FC = () => {
-  const { isAuthenticated } = useSelector((state: RootState) => state.auth);
+// Protected route component that uses the auth context
+const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
+  const { isAuthenticated } = useAuth();
+  
+  if (!isAuthenticated) {
+    return <Navigate to="/login" />;
+  }
+  
+  return <>{children}</>;
+};
 
+const AppRoutes: React.FC = () => {
+  const { isAuthenticated } = useAuth();
+
+  return (
+    <Routes>
+      <Route path="/login" element={!isAuthenticated ? <Login /> : <Navigate to="/" />} />
+      <Route path="/" element={
+        <ProtectedRoute>
+          <MainLayout />
+        </ProtectedRoute>
+      }>
+        <Route index element={<Dashboard />} />
+        <Route path="files" element={<Files />} />
+        <Route path="settings" element={<Settings />} />
+      </Route>
+    </Routes>
+  );
+};
+
+const App: React.FC = () => {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <Routes>
-        <Route path="/login" element={!isAuthenticated ? <Login /> : <Navigate to="/" />} />
-        <Route path="/signup" element={!isAuthenticated ? <Signup /> : <Navigate to="/" />} />
-        <Route path="/verify-email" element={<VerifyEmail />} />
-        <Route path="/reset-password" element={!isAuthenticated ? <ResetPassword /> : <Navigate to="/" />} />
-        <Route path="/update-password" element={<UpdatePassword />} />
-        <Route path="/" element={isAuthenticated ? <MainLayout /> : <Navigate to="/login" />}>
-          <Route index element={<Dashboard />} />
-          <Route path="files" element={<Files />} />
-          <Route path="settings" element={<Settings />} />
-        </Route>
-          <Route path="/whatsapp-debug" element={<WhatsAppPage />} />      </Routes>
+      <AuthProvider>
+        <AppRoutes />
+      </AuthProvider>
     </ThemeProvider>
   );
 };

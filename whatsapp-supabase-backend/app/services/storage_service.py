@@ -12,9 +12,12 @@ supabase: Client = create_client(settings.supabase_url, settings.supabase_key)
 class StorageService:
     def __init__(self, user_id: UUID):
         self.user_id = user_id
-    
+
     def upload_file(self, file_id: UUID) -> Dict[str, Any]:
         """Upload a file to Supabase Storage."""
+        # Create a service role client
+        service_client = create_client(settings.supabase_url, settings.supabase_service_key)
+        
         # Get file info from database
         file_query = supabase.table("files").select("*").eq("id", str(file_id)).execute()
         
@@ -34,11 +37,11 @@ class StorageService:
             phone_number = file_data["phone_number"].replace("+", "").replace(" ", "")
             storage_path = f"{phone_number}/{file_data['filename']}"
             
-            # Upload to Supabase Storage
+            # Upload to Supabase Storage using service role client
             with open(local_path, "rb") as f:
                 file_content = f.read()
                 
-            result = supabase.storage.from_("whatsapp_files").upload(
+            result = service_client.storage.from_("whatsapp-files").upload(
                 storage_path,
                 file_content,
                 {"content-type": file_data.get("mime_type", "application/octet-stream")}
@@ -62,7 +65,9 @@ class StorageService:
             }).eq("id", str(file_id)).execute()
             
             return {"success": False, "error": str(e)}
-    
+     
+     
+        
     def get_files(self, phone_number: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get files from Supabase Storage, optionally filtered by phone number."""
         query = supabase.table("files").select("*").eq("user_id", str(self.user_id))

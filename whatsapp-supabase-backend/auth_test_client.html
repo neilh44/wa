@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auth Test Client</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .card {
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        input, button {
+            padding: 8px;
+            margin: 5px 0;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        pre {
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            overflow: auto;
+        }
+        .output {
+            margin-top: 10px;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <h1>WhatsApp to Supabase Auth Test Client</h1>
+    
+    <div class="card">
+        <h2>Configuration</h2>
+        <div>
+            <label>API Base URL:</label>
+            <input type="text" id="apiBaseUrl" value="http://localhost:8000/api" style="width: 300px">
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Register New User</h2>
+        <div>
+            <input type="email" id="registerEmail" placeholder="Email" required>
+            <input type="text" id="registerUsername" placeholder="Username" required>
+            <input type="password" id="registerPassword" placeholder="Password" required>
+            <button onclick="register()">Register</button>
+        </div>
+        <div class="output" id="registerOutput"></div>
+    </div>
+
+    <div class="card">
+        <h2>Login</h2>
+        <div>
+            <input type="email" id="loginEmail" placeholder="Email" required>
+            <input type="password" id="loginPassword" placeholder="Password" required>
+            <button onclick="login()">Login</button>
+        </div>
+        <div class="output" id="loginOutput"></div>
+    </div>
+
+    <div class="card">
+        <h2>Test Endpoints</h2>
+        <div>
+            <button onclick="testMe()">Test /me</button>
+            <button onclick="testFiles()">Test /files</button>
+            <button onclick="testMissingFiles()">Test /storage/missing</button>
+            <button onclick="testWhatsappSession()">Test /whatsapp/session</button>
+        </div>
+        <div class="output" id="testOutput"></div>
+    </div>
+
+    <script>
+        // Store the token
+        let authToken = '';
+
+        function getApiBaseUrl() {
+            return document.getElementById('apiBaseUrl').value.trim();
+        }
+
+        function formatJson(json) {
+            return JSON.stringify(json, null, 2);
+        }
+
+        async function register() {
+            const output = document.getElementById('registerOutput');
+            output.textContent = 'Registering...';
+
+            const email = document.getElementById('registerEmail').value;
+            const username = document.getElementById('registerUsername').value;
+            const password = document.getElementById('registerPassword').value;
+
+            try {
+                const response = await fetch(`${getApiBaseUrl()}/register`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        email,
+                        username,
+                        password
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (response.ok) {
+                    output.textContent = `Registration successful!\n${formatJson(result)}`;
+                } else {
+                    output.textContent = `Error: ${response.status}\n${formatJson(result)}`;
+                }
+            } catch (error) {
+                output.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        async function login() {
+            const output = document.getElementById('loginOutput');
+            output.textContent = 'Logging in...';
+
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+
+            try {
+                const formData = new FormData();
+                formData.append('username', email);
+                formData.append('password', password);
+
+                const response = await fetch(`${getApiBaseUrl()}/login`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+                
+                if (response.ok) {
+                    authToken = result.access_token;
+                    output.textContent = `Login successful!\nToken: ${authToken.substring(0, 20)}...`;
+                    
+                    // Save token to localStorage
+                    localStorage.setItem('authToken', authToken);
+                } else {
+                    output.textContent = `Error: ${response.status}\n${formatJson(result)}`;
+                }
+            } catch (error) {
+                output.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        async function makeAuthenticatedRequest(endpoint, method = 'GET') {
+            const token = authToken || localStorage.getItem('authToken');
+            
+            if (!token) {
+                return { error: 'No authentication token. Please login first.' };
+            }
+
+            try {
+                const response = await fetch(`${getApiBaseUrl()}${endpoint}`, {
+                    method,
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    return await response.json();
+                } else {
+                    const text = await response.text();
+                    try {
+                        return { error: `Status: ${response.status}`, details: JSON.parse(text) };
+                    } catch {
+                        return { error: `Status: ${response.status}`, details: text };
+                    }
+                }
+            } catch (error) {
+                return { error: error.message };
+            }
+        }
+
+        async function testMe() {
+            const output = document.getElementById('testOutput');
+            output.textContent = 'Testing /me endpoint...';
+            
+            const result = await makeAuthenticatedRequest('/me');
+            output.textContent = formatJson(result);
+        }
+
+        async function testFiles() {
+            const output = document.getElementById('testOutput');
+            output.textContent = 'Testing /files endpoint...';
+            
+            const result = await makeAuthenticatedRequest('/files/');
+            output.textContent = formatJson(result);
+        }
+
+        async function testMissingFiles() {
+            const output = document.getElementById('testOutput');
+            output.textContent = 'Testing /storage/missing endpoint...';
+            
+            const result = await makeAuthenticatedRequest('/storage/missing');
+            output.textContent = formatJson(result);
+        }
+
+        async function testWhatsappSession() {
+            const output = document.getElementById('testOutput');
+            output.textContent = 'Testing /whatsapp/session endpoint...';
+            
+            const result = await makeAuthenticatedRequest('/whatsapp/session', 'POST');
+            output.textContent = formatJson(result);
+        }
+
+        // Check if we have a stored token
+        document.addEventListener('DOMContentLoaded', () => {
+            const storedToken = localStorage.getItem('authToken');
+            if (storedToken) {
+                authToken = storedToken;
+                document.getElementById('loginOutput').textContent = 
+                    `Using stored token: ${authToken.substring(0, 20)}...`;
+            }
+        });
+    </script>
+</body>
+</html>

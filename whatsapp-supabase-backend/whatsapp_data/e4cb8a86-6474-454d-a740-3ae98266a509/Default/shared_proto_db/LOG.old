@@ -1,3 +1,6 @@
-2025/05/05-12:21:46.266 f98c Reusing MANIFEST /Users/nileshhanotia/Projects/Whatspp_GDrive/whatsapp-supabase-backend/whatsapp_data/e4cb8a86-6474-454d-a740-3ae98266a509/Default/shared_proto_db/MANIFEST-000001
-2025/05/05-12:21:46.268 f98c Recovering log #13
-2025/05/05-12:21:46.270 f98c Reusing old log /Users/nileshhanotia/Projects/Whatspp_GDrive/whatsapp-supabase-backend/whatsapp_data/e4cb8a86-6474-454d-a740-3ae98266a509/Default/shared_proto_db/000013.log 
+2025/05/07-12:10:13.909 16e72 Reusing MANIFEST /Users/nileshhanotia/Projects/Whatspp_GDrive/whatsapp-supabase-backend/whatsapp_data/e4cb8a86-6474-454d-a740-3ae98266a509/Default/shared_proto_db/MANIFEST-000001
+2025/05/07-12:10:13.909 16e72 Recovering log #13
+2025/05/07-12:10:13.914 16e72 Reusing old log /Users/nileshhanotia/Projects/Whatspp_GDrive/whatsapp-supabase-backend/whatsapp_data/e4cb8a86-6474-454d-a740-3ae98266a509/Default/shared_proto_db/000013.log 
+2025/05/07-12:10:14.068 16e89 Level-0 table #17: started
+2025/05/07-12:10:14.094 16e89 Level-0 table #17: 108832 bytes OK
+2025/05/07-12:10:14.133 16e89 Delete type=0 #13
