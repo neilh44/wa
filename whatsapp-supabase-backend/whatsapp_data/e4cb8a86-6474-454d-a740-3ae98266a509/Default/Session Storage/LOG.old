@@ -1,3 +1,6 @@
-2025/05/08-08:07:04.310 115f9 Reusing MANIFEST /Users/nileshhanotia/Projects/Whatspp_GDrive/whatsapp-supabase-backend/whatsapp_data/e4cb8a86-6474-454d-a740-3ae98266a509/Default/Session Storage/MANIFEST-000001
-2025/05/08-08:07:04.313 115f9 Recovering log #4
-2025/05/08-08:07:04.317 115f9 Reusing old log /Users/nileshhanotia/Projects/Whatspp_GDrive/whatsapp-supabase-backend/whatsapp_data/e4cb8a86-6474-454d-a740-3ae98266a509/Default/Session Storage/000004.log 
+2025/05/08-09:53:35.237 25212 Reusing MANIFEST /Users/nileshhanotia/Projects/Whatspp_GDrive/whatsapp-supabase-backend/whatsapp_data/e4cb8a86-6474-454d-a740-3ae98266a509/Default/Session Storage/MANIFEST-000001
+2025/05/08-09:53:35.238 25212 Recovering log #4
+2025/05/08-09:53:35.242 25212 Reusing old log /Users/nileshhanotia/Projects/Whatspp_GDrive/whatsapp-supabase-backend/whatsapp_data/e4cb8a86-6474-454d-a740-3ae98266a509/Default/Session Storage/000004.log 
+2025/05/08-09:53:43.108 25214 Level-0 table #8: started
+2025/05/08-09:53:43.129 25214 Level-0 table #8: 14839 bytes OK
+2025/05/08-09:53:43.162 25214 Delete type=0 #4
