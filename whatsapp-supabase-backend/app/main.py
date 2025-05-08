@@ -5,6 +5,7 @@ from app.config import settings
 from app.api import auth, files, whatsapp, storage
 from app.utils.security import get_current_user
 
+
 app = FastAPI(
     title=settings.app_name,
     description="API for WhatsApp to Supabase file upload automation",

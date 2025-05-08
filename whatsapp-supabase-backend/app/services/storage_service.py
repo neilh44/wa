@@ -37,24 +37,62 @@ class StorageService:
             phone_number = file_data["phone_number"].replace("+", "").replace(" ", "")
             storage_path = f"{phone_number}/{file_data['filename']}"
             
+            # Check if file already exists in storage
+            try:
+                # This will throw an exception if file doesn't exist
+                service_client.storage.from_("whatsapp-files").get_public_url(storage_path)
+                logger.info(f"File already exists in storage at {storage_path}")
+                
+                # Update file status in database even though we didn't need to upload
+                supabase.table("files").update({
+                    "uploaded": True,
+                    "storage_path": storage_path,
+                    "updated_at": datetime.utcnow().isoformat()
+                }).eq("id", str(file_id)).execute()
+                
+                return {"success": True, "storage_path": storage_path, "status": "already_exists"}
+            except Exception:
+                # File doesn't exist yet, continue with upload
+                pass
+            
             # Upload to Supabase Storage using service role client
             with open(local_path, "rb") as f:
                 file_content = f.read()
                 
-            result = service_client.storage.from_("whatsapp-files").upload(
-                storage_path,
-                file_content,
-                {"content-type": file_data.get("mime_type", "application/octet-stream")}
-            )
-            
-            # Update file status in database
-            supabase.table("files").update({
-                "uploaded": True,
-                "storage_path": storage_path,
-                "updated_at": datetime.utcnow().isoformat()
-            }).eq("id", str(file_id)).execute()
-            
-            return {"success": True, "storage_path": storage_path}
+            try:
+                result = service_client.storage.from_("whatsapp-files").upload(
+                    storage_path,
+                    file_content,
+                    {"content-type": file_data.get("mime_type", "application/octet-stream")}
+                )
+                
+                # Update file status in database
+                supabase.table("files").update({
+                    "uploaded": True,
+                    "storage_path": storage_path,
+                    "updated_at": datetime.utcnow().isoformat()
+                }).eq("id", str(file_id)).execute()
+                
+                return {"success": True, "storage_path": storage_path}
+            except Exception as e:
+                # Check if error is a duplicate file error
+                if hasattr(e, 'json') and isinstance(e.json(), dict):
+                    error_data = e.json()
+                    if error_data.get('error') == 'Duplicate':
+                        logger.warning(f"File already exists at {storage_path}")
+                        
+                        # Update file status in database even though it's a duplicate
+                        supabase.table("files").update({
+                            "uploaded": True,
+                            "storage_path": storage_path,
+                            "updated_at": datetime.utcnow().isoformat()
+                        }).eq("id", str(file_id)).execute()
+                        
+                        return {"success": True, "storage_path": storage_path, "status": "duplicate"}
+                
+                # Re-raise for non-duplicate errors
+                raise
+                
         except Exception as e:
             logger.error(f"Error uploading file: {e}")
             
@@ -64,10 +102,8 @@ class StorageService:
                 "updated_at": datetime.utcnow().isoformat()
             }).eq("id", str(file_id)).execute()
             
-            return {"success": False, "error": str(e)}
-     
-     
-        
+            return {"success": False, "error": str(e)}        
+             
     def get_files(self, phone_number: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get files from Supabase Storage, optionally filtered by phone number."""
         query = supabase.table("files").select("*").eq("user_id", str(self.user_id))
